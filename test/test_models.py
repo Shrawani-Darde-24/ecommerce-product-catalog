@@ -67,3 +67,45 @@ def test_find_by_name():
     product.delete()
 
     assert Product.find(product_id) is None
+
+
+def test_find_by_category():
+    """It should find products by category."""
+    matching_product = ProductFactory(category=ProductCategory.TOOLS)
+    other_product = ProductFactory(category=ProductCategory.FOOD)
+    products = [matching_product, other_product]
+
+    try:
+        for product in products:
+            product.create()
+
+        found_products = Product.find_by_category(ProductCategory.TOOLS)
+        found_ids = {product.id for product in found_products}
+
+        assert matching_product.id in found_ids
+        assert other_product.id not in found_ids
+    finally:
+        for product in products:
+            if product.id is not None:
+                product.delete()
+
+
+def test_find_by_availability():
+    """It should find products by availability."""
+    available_product = ProductFactory(available=True)
+    unavailable_product = ProductFactory(available=False)
+    products = [available_product, unavailable_product]
+
+    try:
+        for product in products:
+            product.create()
+
+        found_products = Product.find_by_availability(True)
+        found_ids = {product.id for product in found_products}
+
+        assert available_product.id in found_ids
+        assert unavailable_product.id not in found_ids
+    finally:
+        for product in products:
+            if product.id is not None:
+                product.delete()
