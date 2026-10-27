@@ -1,13 +1,15 @@
-"""REST route tests for the product catalog."""
+"""Tests for the product REST API."""
 
 import unittest
 
 from service import create_app, db
 from tests.factories import ProductFactory
 
+BASE_URL = "/products"
+
 
 class TestProductRoutes(unittest.TestCase):
-    """Test the product REST endpoints."""
+    """Exercise the product API endpoints."""
 
     def setUp(self):
         self.app = create_app(
@@ -27,123 +29,120 @@ class TestProductRoutes(unittest.TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    def test_read_product(self):
-        """It should read a product by ID."""
-        product = ProductFactory()
-        product.create()
+    def _create_products(self, count):
+        products = []
+        for _ in range(count):
+            product = ProductFactory()
+            product.id = None
+            response = self.client.post(BASE_URL, json=product.serialize())
+            self.assertEqual(response.status_code, 201)
+            products.append(response.get_json())
+        return products
 
-        response = self.client.get("/products/{}".format(product.id))
+    def _get_product_count(self):
+        response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, 200)
+        return len(response.get_json())
+
+    def test_read_product(self):
+        """It should read a product and return its attributes."""
+        product = ProductFactory()
+        product.id = None
+        create_response = self.client.post(BASE_URL, json=product.serialize())
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.get_json()
+
+        response = self.client.get("{}/{}".format(BASE_URL, created["id"]))
 
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
-        self.assertEqual(data["id"], product.id)
+        self.assertEqual(data["id"], created["id"])
         self.assertEqual(data["name"], product.name)
-        self.assertEqual(data["category"], product.category.value)
+        self.assertEqual(data["description"], product.description)
+        self.assertEqual(data["price"], float(product.price))
 
-def test_update_product(self):
-    """It should update a product by ID."""
-    product = ProductFactory(name="Old Product Name")
-    product.create()
+    def test_update_product(self):
+        """It should update an existing product."""
+        test_product = ProductFactory()
+        test_product.id = None
+        response = self.client.post(BASE_URL, json=test_product.serialize())
+        self.assertEqual(response.status_code, 201)
 
-    updated_data = {
-        "name": "Updated Product Name",
-        "description": "Updated product description",
-        "price": 24.50,
-        "available": False,
-    }
-    response = self.client.put(
-        "/products/{}".format(product.id),
-        json=updated_data,
-    )
+        new_product = response.get_json()
+        new_product["description"] = "unknown"
+        response = self.client.put(
+            "{}/{}".format(BASE_URL, new_product["id"]),
+            json=new_product,
+        )
+        self.assertEqual(response.status_code, 200)
+        updated_product = response.get_json()
+        self.assertEqual(updated_product["description"], "unknown")
 
-    self.assertEqual(response.status_code, 200)
-    data = response.get_json()
-    self.assertEqual(data["id"], product.id)
-    self.assertEqual(data["name"], updated_data["name"])
-    self.assertEqual(data["description"], updated_data["description"])
-    self.assertEqual(data["price"], updated_data["price"])
-    self.assertFalse(data["available"])
+    def test_delete_product(self):
+        """It should delete a product and decrement the product count."""
+        products = self._create_products(5)
+        initial_count = self._get_product_count()
+        product_id = products[0]["id"]
 
+        response = self.client.delete("{}/{}".format(BASE_URL, product_id))
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(response.data), 0)
 
-def test_delete_product(self):
-    """It should delete a product by ID."""
-    product = ProductFactory()
-    product.create()
+        response = self.client.get("{}/{}".format(BASE_URL, product_id))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self._get_product_count(), initial_count - 1)
 
-    response = self.client.delete("/products/{}".format(product.id))
+    def test_get_product_list(self):
+        """It should Get a list of Products."""
+        self._create_products(5)
 
-    self.assertEqual(response.status_code, 204)
-    read_response = self.client.get("/products/{}".format(product.id))
-    self.assertEqual(read_response.status_code, 404)
+        response = self.client.get(BASE_URL)
 
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()), 5)
 
-def test_list_all_products(self):
-    """It should return all products."""
-    products = ProductFactory.create_batch(3)
-    for product in products:
-        product.create()
-    expected_ids = {product.id for product in products}
+    def test_query_by_name(self):
+        """It should Query Products by name."""
+        products = self._create_products(5)
+        name = products[0]["name"]
+        expected_count = sum(product["name"] == name for product in products)
 
-    response = self.client.get("/products")
+        response = self.client.get(BASE_URL, query_string={"name": name})
 
-    self.assertEqual(response.status_code, 200)
-    data = response.get_json()
-    returned_ids = {item["id"] for item in data}
-    self.assertTrue(expected_ids.issubset(returned_ids))
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), expected_count)
+        for product in data:
+            self.assertEqual(product["name"], name)
 
+    def test_query_by_category(self):
+        """It should Query Products by category."""
+        products = self._create_products(10)
+        category = products[0]["category"]
+        expected_count = sum(product["category"] == category for product in products)
 
-def test_list_products_by_name(self):
-    """It should list products matching a name query."""
-    matching_product = ProductFactory(name="Unique Desk Lamp")
-    other_product = ProductFactory(name="Office Chair")
-    for product in (matching_product, other_product):
-        product.create()
+        response = self.client.get(BASE_URL, query_string={"category": category})
 
-    response = self.client.get(
-        "/products",
-        query_string={"name": "Unique Desk Lamp"},
-    )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), expected_count)
+        for product in data:
+            self.assertEqual(product["category"], category)
 
-    self.assertEqual(response.status_code, 200)
-    data = response.get_json()
-    returned_ids = {item["id"] for item in data}
-    self.assertIn(matching_product.id, returned_ids)
-    self.assertNotIn(other_product.id, returned_ids)
+    def test_query_by_availability(self):
+        """It should Query Products by availability."""
+        products = self._create_products(10)
+        available = products[0]["available"]
+        expected_count = sum(product["available"] == available for product in products)
 
+        response = self.client.get(
+            BASE_URL,
+            query_string={"available": str(available).lower()},
+        )
 
-def test_list_products_by_category(self):
-    """It should list products matching a category query."""
-    matching_product = ProductFactory(category=ProductCategory.TOOLS)
-    other_product = ProductFactory(category=ProductCategory.FOOD)
-    for product in (matching_product, other_product):
-        product.create()
-
-    response = self.client.get(
-        "/products",
-        query_string={"category": ProductCategory.TOOLS.value},
-    )
-
-    self.assertEqual(response.status_code, 200)
-    data = response.get_json()
-    returned_ids = {item["id"] for item in data}
-    self.assertIn(matching_product.id, returned_ids)
-    self.assertNotIn(other_product.id, returned_ids)
-
-def test_list_products_by_availability(self):
-    """It should list products matching availability."""
-    available_product = ProductFactory(available=True)
-    unavailable_product = ProductFactory(available=False)
-    for product in (available_product, unavailable_product):
-        product.create()
-
-    response = self.client.get(
-        "/products",
-        query_string={"available": "true"},
-    )
-
-    self.assertEqual(response.status_code, 200)
-    data = response.get_json()
-    returned_ids = {item["id"] for item in data}
-    self.assertIn(available_product.id, returned_ids)
-    self.assertNotIn(unavailable_product.id, returned_ids)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), expected_count)
+        for product in data:
+            self.assertEqual(product["available"], available)
 
