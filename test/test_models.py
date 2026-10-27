@@ -43,6 +43,27 @@ def test_delete_product():
     product.create()
     product_id = product.id
 
+
+def test_find_by_name():
+    """It should find products by name."""
+    matching_product = ProductFactory(name="Unique Desk Lamp")
+    other_product = ProductFactory(name="Office Chair")
+    products = [matching_product, other_product]
+
+    try:
+        for product in products:
+            product.create()
+
+        found_products = Product.find_by_name("Unique Desk Lamp")
+        found_ids = {product.id for product in found_products}
+
+        assert matching_product.id in found_ids
+        assert other_product.id not in found_ids
+    finally:
+        for product in products:
+            if product.id is not None:
+                product.delete()
+
     product.delete()
 
     assert Product.find(product_id) is None
